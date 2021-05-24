@@ -80,18 +80,6 @@ void getTimeDate() {
 		Date[4]	= day_			% 10 + 48;
 		Date[8]	= (year_ / 10)	% 10 + 48;
 		Date[9]	= year_	% 10	% 10 + 48;
-	// Time[12]		= second_	% 10 + 48;
-	// Time[11]		= second_	/ 10 + 48;
-	// Time[9]		= minute_	% 10 + 48;
-	// Time[8]		= minute_	/ 10 + 48;
-	// Time[6]		= hour_		% 10 + 48;
-	// Time[5]		= hour_		/ 10 + 48;
-	// Date[5]		= month_	/ 10 + 48;
-	// Date[6]		= month_	% 10 + 48;
-	// Date[8]		= day_		/ 10 + 48;
-	// Date[9]		= day_		% 10 + 48;
-	// Date[13]	= (year_ / 10)	% 10 + 48;
-	// Date[14]	= year_	% 10  	% 10 + 48;
 	}
 }
 
@@ -100,8 +88,8 @@ void setup() {
 	Serial.begin(115200);
 	Serial.println();
 	Serial.println(ssid);
-	WiFi.mode(WIFI_STA);			// limit access to only WiFi(no router)
-	deviceMac = WiFi.macAddress();
+	WiFi.mode(WIFI_STA);			// Limits access thru WiFi only (internal router disabled)
+	deviceMac = WiFi.macAddress();	// Used to confirm that the requested resources are appropriate for the actual device
 	WiFi.begin(ssid, pwd);
 	while ( WiFi.status() != WL_CONNECTED ) {
 		delay(1000);
