@@ -1,238 +1,199 @@
 
 
-// AT Commands for quad relay
-// Open     relay 1:    A0 01 01 A2
-// Close    relay 1:    A0 01 00 A1
-// Open     relay 2:    A0 02 01 A3
-// Close    relay 2:    A0 02 00 A2
-// Open     relay 3:    A0 03 01 A4
-// Close    relay 3:    A0 03 00 A3
-// Open     relay 4:    A0 04 01 A5
-// Close    relay 4:    A0 04 00 A4
-
-/*
-    HTTP over TLS (HTTPS) example sketch
-    This example demonstrates how to use WiFiClientSecure class to access HTTPS API.
-    We fetch and display the status of esp8266/Arduino project continuous integration build.
-*/
-
-// #include <WiFiClientSecure.h>
-// #include <SPI.h>
-#include <ESP8266WiFi.h>
+#include <Arduino.h>
 #include <ArduinoJson.h>
-#include <NTPClient.h>            // Include NTPClient library
-#include <TimeLib.h>              // Include Arduino time library
-#include <WiFiUdp.h>
+#include <ESP8266WiFi.h>
+#include <WiFiClientSecure.h>
 
 #ifndef STASSID
-#define 	STASSID	"bilbo"
-#define 	STAPSK	"readyplayer1"
+	#define	STASSID	"bilbo"
+	#define	STAPSK	"readyplayer1"
 #endif
 
-#define HOST		"dev.weja.us"
-#define PORT		5423
+#ifdef USE_LittleFS							// Silences spiff deprecation warnings, better way?
+	#define		SPIFFS LittleFS
+	#include	<LittleFS.h>
+#endif
+// #include	<FS.h>
+
+#define API_TEST	false					// Deployment-specific settings. Review before flashing new board.
+#define API_LOCAL	true
+#define HOST_LOCAL	"dev.weja.us"
+#define HOST_TEST	"too.fb.weja.us"
+#define HOST_PROD	"foo.fb.weja.us"
+#define PORT_REMOTE	443
+#define PORT_LOCAL	5423
 #define PODID		1
-#define SLEEP		60000
-#define SLEEPDOH	60000
-#define DEBUG		false
+#define SLEEP		3600000					// default: 3600000 -- 1 hour
+#define SLEEPDOH	1000					// default: 30000 -- .5 minutes
+#define ZONE1		3						// connect to GPIO3
+#define ZONE2		2						// connect to GPIO2
+#define ZONE3		1						// connect to GPIO1
+#define ZONE4		0						// connect to GPIO0
 
-WiFiUDP		ntpUDP;
-NTPClient	timeClient(ntpUDP, "time.nist.gov", 3600, 60000);
+const 	int			zone1		= ZONE1;
+const 	int			zone2		= ZONE2;
+		int			zone3		= ZONE3;
+const 	int			zone4		= ZONE4;
+const	bool		isDebug		= false;
+const	bool		apiIsLocal	= API_LOCAL;
+const	bool		apiIsTest	= API_TEST;
+const	char *		ssid		= STASSID;
+const	char *		pwd			= STAPSK;
+const	int			podId		= PODID;
+const	int			sleep		= SLEEP;
+const	int			sleepOnDoh	= SLEEPDOH;
+		String		host		= HOST_LOCAL;
+		int			port		= PORT_LOCAL;
+		String		deviceMacId	= "";
+		WiFiClient	client;
 
-String		deviceMac;
-bool		debug		= DEBUG;
-const char*	ssid		= STASSID;
-const char*	pwd			= STAPSK;
-const char*	hst			= HOST;
-const int	prt			= PORT;
-const int	podId		= PODID;
-const int	sleep		= SLEEP;
-const int	sleepDoh	= SLEEPDOH;
-char		Time[]		= "00:00:00";
-char		Date[]		= "00/00/2000";
-int			year_;
-byte		last_second,
-			second_,
-			minute_,
-			hour_,
-			day_,
-			month_;
+/*
+	Todo: Add builtin button reference using 'INPUT_PULLUP' on running unit to claw back TX serial log
+			for troubleshooting quad relays, of course, sacrificing gpio0 for the privilege.
+*/
 
-void getTimeDate() {
-	timeClient.update();
-	unsigned long unix_epoch	= timeClient.getEpochTime();
-	second_						= second(unix_epoch);
-	if ( last_second != second_ ) {
-		minute_	= minute(unix_epoch);
-		hour_	= hour(unix_epoch)-7;
-		day_	= day(unix_epoch);
-		month_	= month(unix_epoch);
-		year_	= year(unix_epoch);
-		Time[7]	= second_		% 10 + 48;
-		Time[6]	= second_		/ 10 + 48;
-		Time[4]	= minute_		% 10 + 48;
-		Time[3]	= minute_		/ 10 + 48;
-		Time[1]	= hour_			% 10 + 48;
-		Time[0]	= hour_			/ 10 + 48;
-		Date[0]	= month_		/ 10 + 48;
-		Date[1]	= month_		% 10 + 48;
-		Date[3]	= day_			/ 10 + 48;
-		Date[4]	= day_			% 10 + 48;
-		Date[8]	= (year_ / 10)	% 10 + 48;
-		Date[9]	= year_	% 10	% 10 + 48;
-	}
+void bootTest() {
+	delay(5000);
+	if (isDebug) Serial.println(WiFi.macAddress());
+	digitalWrite(zone1, LOW);
+	delay(5000);
+	if (isDebug) Serial.println(WiFi.macAddress());
+	digitalWrite(zone1, HIGH);
+	delay(5000);
+	if (isDebug) Serial.println(WiFi.macAddress());
+	digitalWrite(zone2, LOW);
+	delay(5000);
+	if (isDebug) Serial.println(WiFi.macAddress());
+	digitalWrite(zone2, HIGH);
+	delay(5000);
+	if (isDebug) Serial.println(WiFi.macAddress());
+	digitalWrite(zone3, LOW);
+	delay(5000);
+	if (isDebug) Serial.println(WiFi.macAddress());
+	digitalWrite(zone3, HIGH);
+	delay(5000);
+	if (isDebug) Serial.println(WiFi.macAddress());
+	digitalWrite(zone4, LOW);
+	delay(5000);
+	if (isDebug) Serial.println(WiFi.macAddress());
+	digitalWrite(zone4, HIGH);
 }
-
 
 void setup() {
-	Serial.begin(115200);
-	Serial.println();
-	Serial.println(ssid);
-	WiFi.mode(WIFI_STA);			// Limits access thru WiFi only (internal router disabled)
-	deviceMac = WiFi.macAddress();	// Used to confirm that the requested resources are appropriate for the actual device
+	if (isDebug) {
+		pinMode(zone1, FUNCTION_3);	// Now playing the part of TX, will be gpio3. Recoup: pinMode(1, FUNCTION_0). Use only if serial.begin has already commandeered the TX pin.
+		pinMode(zone1, OUTPUT);
+		Serial.begin(115200);
+		zone3 = 2;
+	} else {
+		pinMode(zone1, FUNCTION_3);
+		pinMode(zone3, FUNCTION_3);
+		pinMode(zone1, OUTPUT);
+		pinMode(zone3, OUTPUT);
+	}
+	pinMode(zone2, OUTPUT);
+	pinMode(zone4, OUTPUT);
+	digitalWrite(zone1, HIGH);				// Init all zones HIGH=OFF(referring to sprinkler solenoid)
+	digitalWrite(zone2, HIGH);
+	digitalWrite(zone3, HIGH);
+	digitalWrite(zone4, HIGH);
+	WiFi.mode(WIFI_STA);					// Limit access to ONLY WiFi connects(i.e.internal router disabled)
+	deviceMacId	= WiFi.macAddress();		// Use ONLY to confirm device config, NOT in lieu of actual security!
 	WiFi.begin(ssid, pwd);
 	while ( WiFi.status() != WL_CONNECTED ) {
+		if (isDebug) Serial.print(".");
 		delay(1000);
-		Serial.print(".");
 	}
-
-	timeClient.begin();
-
-	Serial.print("conn: ");
-	Serial.println(WiFi.localIP());
-	Serial.print("device: ");
-	Serial.println(WiFi.macAddress());
+	bootTest();
 }
 
-
 void loop() {
-	getTimeDate();
+	if (apiIsLocal) {
+		host = HOST_LOCAL;
+	} else if (apiIsTest) {
+		host = HOST_TEST;
+		port = PORT_REMOTE;
+		WiFiClientSecure client2;		// Todo: Make WiFiClient conditionally inherit WifiClientSecure for non-local
+		client2.setInsecure();			// Skip surprisingly tedious verification for now |:^o Todo: consider SSL fingerprint impl
+	} else {
+		host = HOST_PROD;
+		port = PORT_REMOTE;
+		WiFiClientSecure client2;		// Todo: Make WiFiClient conditionally inherit WifiClientSecure for non-local
+		client2.setInsecure();			// Skip surprisingly tedious verification for now |:^o Todo: consider SSL fingerprint impl
+	}
 
-	Serial.print(Date);
-	Serial.print(" ");
-	Serial.print(Time);
-
-	WiFiClient client;		// WiFiClientSecure client;	// Creates a TLS connection
-
-	client.setTimeout( 10000 );
-	if ( ! client.connect( hst, prt )) {
-		Serial.println( "CONNDOH: TIMEOUT" );
-		delay(sleepDoh);
+	client.setTimeout(20000);
+	if ( client.connect(host, port) ) {
+		if (isDebug) Serial.println("connected... continuing");
+	} else {
+		if (isDebug) Serial.println("not connected... retrying");
+		delay(sleepOnDoh);
 		return;
 	}
-	if (debug) Serial.print("> Incoming message ...... ");
+	client.printf("GET /api/pod/%d?device=%s HTTP/1.1", podId, deviceMacId.c_str());
+	client.printf("\r\nHost: %s\r\nReferer: %s\r\nAccept: application/json\r\nConnection: close\r\n\r\n", host.c_str(), deviceMacId.c_str());
 
-	client.print("GET /api/pod/");
-	client.print( podId );
-	client.print( "?device=" + deviceMac );
-	client.println(" HTTP/1.1");
-	client.print("Host: ");
-	client.println(hst);
-	client.print("Referer: ");
-	client.println(deviceMac);
-	client.println("Connection: close");
+	while ( client.connected() || client.available() ) {
+		if ( client.available() ) {
+			String line = client.readStringUntil('\n');
+			if (line == "\r") break;
+		}
+	}
 
-	if ( client.println() == 0 ) {
-		Serial.println("SENDDOH");
-		client.stop();
-		delay(sleepDoh);
-		return;
-	}
-	char status[32] = {0};										// Check HTTP status
-	client.readBytesUntil( '\r', status, sizeof( status ) );
-	if ( strcmp( status, "HTTP/1.1 200 OK" ) != 0 ) {
-		Serial.print("RESPDOH: ");
-		Serial.println(status);
-		client.stop();
-		delay(sleepDoh);
-		return;
-	}
-	char endOfHeader[] = "\r\n\r\n";							// Skip headers
-	if ( ! client.find( endOfHeader )) {
-		Serial.println("PARSEDOH: Found no end-of-header sequence");
-		client.stop();
-		delay(sleepDoh);
-		return;
-	}
-	DynamicJsonDocument doc( 1800 );	// BTW, arduinojson.org/v6/assistant way underestimated with 256
+	DynamicJsonDocument doc(2560);				// FYI, arduinojson.org/v6/assistant way underestimated with 256
 	DeserializationError error = deserializeJson(doc, client);
 	if ( error ) {
-		Serial.print("DESERIALDOH: ");
-		Serial.println( error.f_str() );
+		if (isDebug) Serial.printf("????????????????????? %s", error.c_str());
 		client.stop();
-		delay(sleepDoh);
+		delay(sleepOnDoh);		// Override the full loop cycle and try to connect again sooner... not too soon though
 		return;
 	}
 
-	if (debug) Serial.println("RECIEVED");
 	const JsonObject	podObj	= doc.as<JsonObject>();
 	const int			pod		= podObj["pod"];
-	if (debug) Serial.print("> Confirming relevancy...");
-
 	if ( pod == podId ) {
-		Serial.println(" FOUND: pod1");
-		if (debug) Serial.print("POD1> Compiling zones... ");
-
 		JsonObject zoneObj	= podObj["payload"].as<JsonObject>();
-
-		if (
-			zoneObj.containsKey("1") ||
-			zoneObj.containsKey("2") ||
-			zoneObj.containsKey("3") ||
-			zoneObj.containsKey("4")
-		) {
-
-			Serial.println("done");
+		if ( zoneObj.containsKey("1")||zoneObj.containsKey("2")||zoneObj.containsKey("3")||zoneObj.containsKey("4")) {
 			if (zoneObj.containsKey("1")) {
 				int duration = zoneObj["1"].as<int>();
 				if (duration > 0) {
-					Serial.print("POD1> ZONE1> ON: ");
-					Serial.println(duration);
+					digitalWrite(zone1, LOW);
 					delay(duration);
-					if (debug) Serial.println("POD1> ZONE1> OFF");
+					digitalWrite(zone1, HIGH);
 				}
 			}
 			if (zoneObj.containsKey("2")) {
 				int duration = zoneObj["2"].as<int>();
 				if (duration > 0) {
-					Serial.print("POD1> ZONE2> ON: ");
-					Serial.println(duration);
+					digitalWrite(zone2, LOW);
 					delay(duration);
-					if (debug) Serial.println("POD1> ZONE2> OFF");
+					digitalWrite(zone2, HIGH);
 				}
 			}
 			if (zoneObj.containsKey("3")) {
 				int duration = zoneObj["3"].as<int>();
 				if (duration > 0) {
-					Serial.print("POD1> ZONE3> ON: ");
-					Serial.println(duration);
+					digitalWrite(zone3, LOW);
 					delay(duration);
-					if (debug) Serial.println("POD1> ZONE3> OFF");
+					digitalWrite(zone3, HIGH);
 				}
 			}
 			if (zoneObj.containsKey("4")) {
 				int duration = zoneObj["4"].as<int>();
 				if (duration > 0) {
-					Serial.print("POD1> ZONE4> ON: ");
-					Serial.println(duration);
+					digitalWrite(zone4, LOW);
 					delay(duration);
-					if (debug) Serial.println("POD1> ZONE4> OFF");
+					digitalWrite(zone4, HIGH);
 				}
 			}
 		} else {
-			Serial.println("POD1> No relevant zones... ignored");
-			if (debug) Serial.println(" Reply contains a relevant pod, but no relevant zones... ignored");
-			if (debug) Serial.println("POD1> No active zone instructions found...message ignored");
-			if (debug) Serial.println("POD1> EXIT");
+			if (isDebug) Serial.println("no instructions in pod1 object\n...  ZzZzZzZzZzZzZzZzZzZz ...");
 		}
 	} else {
-		Serial.println(" No pod1 instructions... ignored");
-		if (debug) Serial.println(" Reply contains valid JSON, but no relevant pod... ignored");
-		if (debug) Serial.println("POD1> Nothing relevant found... message ignored");
-		if (debug) Serial.println("POD1> EXIT");
+		if (isDebug) Serial.println("nothing doing\n...  ZzZzZzZzZzZzZzZzZzZz  ...");
 	}
 	client.stop();
-	Serial.println("--- ZzZzZzZzZzZzZzZzZz ---");
+	if (isDebug) Serial.println("...  ZzZzZzZzZzZzZzZzZzZz  ...");
 	delay(sleep);
 }
-
